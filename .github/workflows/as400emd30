@@ -1,0 +1,56 @@
+
+Causas raíz identificadas en tus capturas
+
+1. Agregación incorrecta (Count en vez de Average o Minimum):
+	• En la captura 4 (Query definition), tienes seleccionada la agregación Count.
+	• El problema: Count no lee el número 0 que envía tu script. En cambio, cuenta cuántos puntos de datos llegaron en ese minuto. Como tu script envía 1 dato (con valor 0), Dynatrace cuenta 1 punto recibido.
+	• Por eso, en la gráfica de vista previa (Alert preview de la captura 2), la línea morada marca 1 cuando llega el dato, y nunca baja de 1 (tu umbral configurado en la captura 3).
+2. Envío intermitente y Alert on missing data desactivado:
+	• En tu explicación indicas que el script solo envía la métrica si el resultado es 0. En la gráfica de vista previa se ven espacios en blanco entre los puntos morados.
+	• Por defecto, los Metric Events de Dynatrace requieren una ventana deslizante (ej. que la condición se cumpla en 3 de los últimos 5 minutos). Si envías un único 0 cada 30 minutos y luego dejas de enviar datos, la ventana no acumula suficientes muestras violadas para abrir el problema.
+
+Guía paso a paso para solucionar el problema
+
+Sigue estos ajustes en la configuración de tu Metric Event (Alerta: AS400EMD30min):
+
+Paso 1: Corregir la agregación de la métrica
+
+• Ve a Settings > Anomaly detection > Metric events y abre tu regla Alerta: AS400EMD30min.
+• En la sección Query definition, cambia el campo Aggregation de Count a Average (o Minimum).
+• Esto hará que Dynatrace evalúe el valor real (0) que inyecta tu script en lugar de contar la cantidad de envíos.
+
+Paso 2: Ajustar el umbral y la condición
+
+• En la sección Monitoring strategy (captura 3):
+	• Mantén Model type en Static threshold.
+	• Cambia Threshold a 0.5 (o 1 si usas la condición Alert if metric is below, ya que 0 es menor que 1).
+	• Verifica que Alert condition esté en Alert if metric is below.
+
+Paso 3: Configurar la ventana de evaluación (Advanced model properties)
+
+Como tu script se ejecuta cada 30 minutos (según el nombre AS400EMD30min), debes ajustar la sensibilidad para que un solo dato sea suficiente para disparar la alerta:
+• Haz clic para desplegar Advanced model properties (justo debajo de Alert condition en la captura 2).
+• Configura los parámetros de la ventana deslizante de la siguiente manera:
+	• Violating samples: 1
+	• Sliding window: 1 (o 5 si el script envía datos cada minuto durante una falla).
+	• Dealerting samples: 1 (ten en cuenta que si no envías un valor distinto de 0 cuando la base de datos se recupere, el problema se cerrará automáticamente tras pasar la ventana de tiempo si Alert on missing data está apagado).
+
+Paso 4: Validar la frecuencia en el script Bash (Recomendación clave)
+
+• Mejora recomendada: En lugar de enviar la métrica solo cuando el resultado es 0, modifica tu script Bash para que siempre envíe el resultado real de la consulta (por ejemplo, 0 cuando falla y 1 cuando está OK) cada vez que se ejecute.
+• Por qué hacerlo: Esto mantiene una serie de tiempo continua en Dynatrace. Así, el problema se abrirá en cuanto llegue un 0 y se cerrará de forma limpia y automática en cuanto llegue un 1.
+
+Paso 5: Verificar el Alerting Profile y la notificación
+
+• Tu Alerting Profile (captura 5) está bien configurado: captura eventos de tipo Custom alert, con 0 mins de retraso y filtrando correctamente por el título Alerta: AS400EMD30min.
+• Solo asegúrate de ir a Settings > Integration > Problem notifications y verificar que tu integración (correo, Slack, Teams, Webhook, etc.) tenga seleccionado este Alerting Profile específico (Alerta: AS400EMD30min).
+
+Checklist rápido de validación (Logs y API)
+
+• Logs del ActiveGate: Si deseas confirmar la recepción sin errores, revisa en el servidor del ActiveGate la ruta /var/log/dynatrace/remotepluginmodule/ o los logs del módulo de ingestión (metrics_ingest.log), buscando códigos HTTP 202 (aceptado).
+• Formato de línea recomendado (Metrics API v2): Asegúrate de que tu script envíe la línea con este formato exacto:
+as400.EMD_30Min_APP.cantidad_hora,dt.entity.host=HOST-TU_ID_AQUI 0
+Si quieres que revisemos el flujo completo para asegurarnos de que el problema se abra y se cierre automáticamente, compárteme:
+• El fragmento del script Bash donde construyes y envías el curl hacia el ActiveGate
+• La frecuencia del cron con la que se ejecuta ese script
+Con eso te ayudo a dejar el comando exacto y los valores ideales de Advanced model properties.
