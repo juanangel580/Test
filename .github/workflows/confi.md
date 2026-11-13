@@ -14,4 +14,3 @@
 System clock synchronized: yes
               NTP service: active
           RTC in local TZ: no
-[root@F2D005ADGV23 ansible]#
